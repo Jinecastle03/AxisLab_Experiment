@@ -202,7 +202,7 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 1927258446}
+      - m_Target: {fileID: 1927258449}
         m_TargetAssemblyTypeName: YawGaussianRingsController, Assembly-CSharp
         m_MethodName: StopHaptics
         m_Mode: 1
@@ -1001,7 +1001,7 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 1927258446}
+      - m_Target: {fileID: 1927258449}
         m_TargetAssemblyTypeName: YawGaussianRingsController, Assembly-CSharp
         m_MethodName: StartHaptics
         m_Mode: 1
@@ -2026,9 +2026,9 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1927258444}
-  - component: {fileID: 1927258446}
   - component: {fileID: 1927258447}
   - component: {fileID: 1927258448}
+  - component: {fileID: 1927258449}
   m_Layer: 0
   m_Name: bHapticsController
   m_TagString: Untagged
@@ -2051,39 +2051,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1927258446
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1927258443}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e5da51c3fc4075a40bc453e4e83ca53e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: '::'
-  useTopRing: 1
-  useMidRing: 0
-  useBottomRing: 0
-  topRing: 0c0000000d0000000e0000000f0000001f0000001e0000001d0000001c000000
-  midRing: 08000000090000000a0000000b0000001b0000001b0000001900000018000000
-  bottomRing: 0400000005000000060000000700000017000000160000001500000014000000
-  topScale: 1
-  midScale: 1
-  bottomScale: 1
-  speedMode: 0
-  angularSpeedDegPerSec: 30
-  angularSpeedRadPerSec: 1
-  cyclesPerSecond: 0.25
-  maxIntensity01: 0.4
-  sigmaFrontBack: 0.65
-  sigmaSide: 0.9
-  sideSigmaWindow: 1.2
-  sideEdgeLengthMultiplier: 0.55
-  smoothingTau: 0.08
-  useUnscaledTime: 1
-  durationMillis: 50
 --- !u!114 &1927258447
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2100,14 +2067,14 @@ MonoBehaviour:
   angularSpeedDegPerSec: 60
   angularSpeedRadPerSec: 1
   cyclesPerSecond: 0.25
-  maxIntensity01: 0.5
+  maxIntensity01: 0.1
   sigmaStepsMain: 0.85
   sigmaStepsSub: 0.65
   neighborCountMain: 2
   neighborCountSub: 1
   cutoff01: 0.02
   mainScale: 1
-  subScale: 0.9
+  subScale: 0
   smoothingTau: 0.08
   useUnscaledTime: 1
   durationMillis: 50
@@ -2128,22 +2095,22 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: '::'
   useMidRing: 0
-  useEdgeRing: 0
+  useEdgeRing: 1
   speedMode: 0
-  angularSpeedDegPerSec: 60
+  angularSpeedDegPerSec: 30
   angularSpeedRadPerSec: 1
   cyclesPerSecond: 0.25
-  maxIntensity01: 1
+  maxIntensity01: 0.1
   midScale: 1
-  edgeScale: 0.95
-  sigmaNormal: 0.85
-  sigmaTopBottom: 1
-  topBottomWindow: 0.9
+  edgeScale: 1
+  sigmaNormal: 0.65
+  sigmaTopBottom: 0.95
+  topBottomWindow: 1.2
   smoothingTau: 0.08
   useUnscaledTime: 1
   durationMillis: 50
-  neighborPairs: 2
-  cutoff01: 0.02
+  neighborPairs: 1
+  cutoff01: 0.06
   midPairs:
   - a: 13
     b: 14
@@ -2178,6 +2145,48 @@ MonoBehaviour:
     b: 27
   - a: 28
     b: 31
+--- !u!114 &1927258449
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1927258443}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e5da51c3fc4075a40bc453e4e83ca53e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::YawGaussianRingsController
+  useTopRing: 1
+  useMidRing: 0
+  useBottomRing: 0
+  topRing: 0c0000000d0000000e0000000f0000001f0000001e0000001d0000001c000000
+  midRing: 08000000090000000a0000000b0000001b0000001a0000001900000018000000
+  bottomRing: 0400000005000000060000000700000017000000160000001500000014000000
+  topScale: 1
+  midScale: 0.85
+  bottomScale: 0.75
+  speedMode: 0
+  angularSpeedDegPerSec: 30
+  angularSpeedRadPerSec: 1
+  cyclesPerSecond: 0.25
+  maxIntensity01: 0.1
+  sigmaFrontBack: 0.85
+  sigmaSide: 1.1
+  sideSigmaWindow: 0.9
+  startIndexTop: 1
+  startIndexMid: 0
+  startIndexBottom: 0
+  cutoff01: 0.04
+  perceptualThresholdFrontBack01: 0.08
+  perceptualThresholdSide01: 0.1
+  smoothingTau: 0.12
+  useUnscaledTime: 1
+  durationMillis: 20
+  outputGamma: 0.45
+  minOn01: 0.1
+  minOnBlend01: 0.07
+  sideEdgeLengthMultiplier: 1
 --- !u!1 &1965851471
 GameObject:
   m_ObjectHideFlags: 0
