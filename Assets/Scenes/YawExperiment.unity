@@ -19067,13 +19067,15 @@ MonoBehaviour:
   statusText: {fileID: 824179552}
   axis: 0
   condition: 0
-  visualAngularSpeedDegPerSec: 45
-  hapticAngularSpeedDegPerSec: 90
+  visualAngularSpeedDegPerSec: 40
+  hapticAngularSpeedDegPerSec: 80
   playDurationMinutes: 1
   useUnscaledTime: 1
-  yawMaxIntensity01: 0.3
-  rollMaxIntensity01: 0.3
-  pitchMaxIntensity01: 0.3
+  elapsedSeconds: 0
+  elapsedWholeSeconds: 0
+  yawMaxIntensity01: 0.152
+  rollMaxIntensity01: 0.131
+  pitchMaxIntensity01: 0.104
   useNormalization: 1
   yawNormalizationMode: 1
   pitchNormalizationMode: 1
@@ -19083,8 +19085,8 @@ MonoBehaviour:
   yawMinOn01: 0
   yawSmoothingTau: 0.1
   yawDurationMillis: 50
-  yawSigmaFrontBack: 0.7
-  yawSigmaSeam: 0.9
+  yawSigmaFrontBack: 1.42
+  yawSigmaSeam: 1.44
   pitchCutoff01: 0
   pitchPerceptualThreshold01: 0
   pitchMinOn01: 0
@@ -19101,14 +19103,16 @@ MonoBehaviour:
   rollSubScale: 0
   rollSmoothingTau: 0.08
   rollDurationMillis: 50
+  randomUseStepTimeFromAngularSpeed: 1
   randomUpdateInterval: 0.1
-  randomMotorCount: 3
-  randomIntensity01: 0.25
+  randomIntensity01: 0.152
   randomDurationMs: 60
+  randomAvoidImmediateRepeat: 1
+  randomYawPoolOverride: 
   fmsReminderIntervalSeconds: 30
   uiAudioSource: {fileID: 227080882}
   beepClip: {fileID: 8300000, guid: 2aba19d17e7d04b478a3d171e0cbed99, type: 3}
-  beepVolume: 0.4
+  beepVolume: 0.1
   showFmsTextOnBeep: 0
   fmsTextSeconds: 0.5
   isRunning: 0
@@ -59823,34 +59827,15 @@ MonoBehaviour:
   cyclesPerSecond: 0.25
   maxIntensity01: 0.85
   normalizationMode: 1
-  energyTarget: 2.5
   sigmaStepsMain: 0.9
   sigmaStepsSub: 0.75
   neighborCountMain: 2
   neighborCountSub: 1
   cutoff01: 0.02
-  mainScale: 1
-  subScale: 0
+  mainScale01: 1
+  subScale01: 1
   smoothingTau: 0.08
-  useUnscaledTime: 1
   durationMillis: 50
-  enableFront: 1
-  mainFront: 0c0000000d0000000e0000000f0000000b00000007000000030000000200000001000000000000000400000008000000
-  subFront: 090000000a0000000600000005000000
-  enableBack: 1
-  mainBack: 1c0000001d0000001e0000001f0000001b00000017000000130000001200000011000000100000001400000018000000
-  subBack: 
-  enableSide: 1
-  mainSide: 
-  subSide: 
-  backMainOffsetSteps: 6
-  sideMainOffsetSteps: 3
-  backSubOffsetSteps: 2
-  sideSubOffsetSteps: 1
-  backMainScale: 0
-  backSubScale: 0
-  sideMainScale: 0
-  sideSubScale: 0
 --- !u!4 &1030817997 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4748624645171214, guid: 56edbd376562e9544ab88753fd3c4682, type: 3}
@@ -137011,8 +136996,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1269264357}
-  - component: {fileID: 1269264356}
-  - component: {fileID: 1269264355}
   m_Layer: 0
   m_Name: GameObject
   m_TagString: Untagged
@@ -137020,30 +137003,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1269264355
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1269264354}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 35ba4ede18fe4f248a86f0fc90c62c67, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: '::'
---- !u!114 &1269264356
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1269264354}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 7f6aae191960f584b8c22414c836a4bf, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: '::'
 --- !u!4 &1269264357
 Transform:
   m_ObjectHideFlags: 0
@@ -137739,6 +137698,7 @@ GameObject:
   - component: {fileID: 1329913423}
   - component: {fileID: 1329913422}
   - component: {fileID: 1329913421}
+  - component: {fileID: 1329913424}
   m_Layer: 0
   m_Name: XR Origin (VR)
   m_TagString: Untagged
@@ -137793,6 +137753,87 @@ Transform:
   - {fileID: 1032176928}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1329913424
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1329913420}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7e933e81d3c20c74ea6fdc708a67e3a5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Oculus.VR::OVRManager
+  _monoscopic: 0
+  _sharpenType: 0
+  _enableDynamicResolution: 0
+  minDynamicResolutionScale: 1
+  maxDynamicResolutionScale: 1
+  quest2MinDynamicResolutionScale: 0.7
+  quest2MaxDynamicResolutionScale: 1.3
+  quest3MinDynamicResolutionScale: 0.7
+  quest3MaxDynamicResolutionScale: 1.6
+  minRenderScale: 0.7
+  maxRenderScale: 1
+  _headPoseRelativeOffsetRotation: {x: 0, y: 0, z: 0}
+  _headPoseRelativeOffsetTranslation: {x: 0, y: 0, z: 0}
+  profilerTcpPort: 32419
+  expandMixedRealityCapturePropertySheet: 0
+  enableMixedReality: 0
+  compositionMethod: 0
+  extraHiddenLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  extraVisibleLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  dynamicCullingMask: 1
+  externalCompositionBackdropColorRift: {r: 0, g: 1, b: 0, a: 1}
+  externalCompositionBackdropColorQuest: {r: 0, g: 0, b: 0, a: 0}
+  capturingCameraDevice: 0
+  flipCameraFrameHorizontally: 0
+  flipCameraFrameVertically: 0
+  handPoseStateLatency: 0
+  sandwichCompositionRenderLatency: 0
+  sandwichCompositionBufferedFrames: 8
+  chromaKeyColor: {r: 0, g: 1, b: 0, a: 1}
+  chromaKeySimilarity: 0.6
+  chromaKeySmoothRange: 0.03
+  chromaKeySpillRange: 0.06
+  useDynamicLighting: 0
+  depthQuality: 1
+  dynamicLightingSmoothFactor: 8
+  dynamicLightingDepthVariationClampingValue: 0.001
+  virtualGreenScreenType: 0
+  virtualGreenScreenTopY: 10
+  virtualGreenScreenBottomY: -10
+  virtualGreenScreenApplyDepthCulling: 0
+  virtualGreenScreenDepthTolerance: 0.2
+  mrcActivationMode: 0
+  launchSimultaneousHandsControllersOnStartup: 0
+  isInsightPassthroughEnabled: 0
+  shouldBoundaryVisibilityBeSuppressed: 0
+  requestBodyTrackingPermissionOnStartup: 0
+  requestFaceTrackingPermissionOnStartup: 0
+  requestEyeTrackingPermissionOnStartup: 0
+  requestScenePermissionOnStartup: 0
+  requestRecordAudioPermissionOnStartup: 0
+  requestPassthroughCameraAccessPermissionOnStartup: 0
+  _localDimming: 1
+  _trackingOriginType: 1
+  usePositionTracking: 1
+  useRotationTracking: 1
+  useIPDInPositionTracking: 1
+  resetTrackerOnLoad: 0
+  AllowRecenter: 1
+  LateControllerUpdate: 1
+  LateLatching: 0
+  controllerDrivenHandPosesType: 0
+  SimultaneousHandsAndControllersEnabled: 0
+  _readOnlyWideMotionModeHandPosesEnabled: 0
+  wideMotionModeHandPosesEnabled: 0
+  dynamicResolutionVersion: 1
 --- !u!4 &1339432275 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4537225549239692, guid: ab36f4e752fd5d74d8e9f8f24c8864f2, type: 3}

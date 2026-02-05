@@ -12,13 +12,11 @@ public class VRRotationHapticsManualController : MonoBehaviour
     [Tooltip("XR Origin 또는 OVRCameraRig '루트 Transform' (Main Camera X)")]
     public Transform rigRoot;
 
-    // 네 프로젝트 타입에 맞춰서 연결 (클래스명이 다르면 Inspector에서 레퍼런스 타입도 바꿔야 함)
     public YawGaussian yawController;
-    public RollGaussian rollController;
-    public PitchGaussian pitchController;
+    public RollGaussian rollController;    // yaw만 쓸 거면 비워도 됨
+    public PitchGaussian pitchController;  // yaw만 쓸 거면 비워도 됨
 
-    [Header("UI")]
-    [Tooltip("카운트다운/상태를 표시할 TextMeshProUGUI")]
+    [Header("UI (optional)")]
     public TMP_Text statusText;
 
     [Header("Current Setting (Inspector에서 바꾸고 Play/Stop)")]
@@ -29,7 +27,7 @@ public class VRRotationHapticsManualController : MonoBehaviour
     [Tooltip("deg/sec. 화면(카메라/rig) 회전 속도")]
     public float visualAngularSpeedDegPerSec = 45f;
 
-    [Tooltip("deg/sec. 수트(햅틱) 진행 속도. 시각 속도와 분리 가능")]
+    [Tooltip("deg/sec. 수트(햅틱) 진행 속도. Random의 step 계산에도 이 값 사용")]
     public float hapticAngularSpeedDegPerSec = 90f;
 
     [Tooltip("minutes. 0이면 자동 종료 없음")]
@@ -37,6 +35,10 @@ public class VRRotationHapticsManualController : MonoBehaviour
 
     [Tooltip("Time.timeScale 영향 안 받게")]
     public bool useUnscaledTime = true;
+
+    [Header("Runtime (Read Only)")]
+    [SerializeField] private float elapsedSeconds = 0f;
+    [SerializeField] private int elapsedWholeSeconds = 0;
 
     [Header("Haptics - Intensity per Axis")]
     [Range(0f, 1f)] public float yawMaxIntensity01 = 0.30f;
@@ -82,27 +84,32 @@ public class VRRotationHapticsManualController : MonoBehaviour
     public float rollSmoothingTau = 0.08f;
     public int rollDurationMillis = 50;
 
-    [Header("Random Motors Condition")]
+    [Header("Random Motors (Yaw path 내부 랜덤)")]
+    [Tooltip("각속도 기반으로 '다음 모터로 넘어가는 시간'을 자동 계산할지")]
+    public bool randomUseStepTimeFromAngularSpeed = true;
+
+    [Tooltip("randomUseStepTimeFromAngularSpeed=false 일 때만 사용. 초 단위")]
     public float randomUpdateInterval = 0.10f;
-    [Range(1, 10)] public int randomMotorCount = 3;
+
     [Range(0f, 1f)] public float randomIntensity01 = 0.25f;
+
+    [Tooltip("randomUseStepTimeFromAngularSpeed=false 일 때만 사용. ms")]
     public int randomDurationMs = 60;
+
+    public bool randomAvoidImmediateRepeat = true;
+
+    [Tooltip("Yaw 랜덤 풀을 강제로 지정(비워두면 yawController.loopPath 사용)")]
+    public int[] randomYawPoolOverride;
 
     [Header("FMS Reminder (Beep)")]
     [Tooltip("0이면 비활성화. 예: 30이면 30초마다 삐 소리")]
     public float fmsReminderIntervalSeconds = 30f;
 
-    [Tooltip("삐 소리를 재생할 AudioSource (UI용 추천)")]
     public AudioSource uiAudioSource;
-
-    [Tooltip("삐 소리 AudioClip (짧은 wav/mp3)")]
     public AudioClip beepClip;
-
     [Range(0f, 1f)] public float beepVolume = 0.8f;
 
-    [Tooltip("삐 소리 울릴 때 화면에도 잠깐 'FMS' 표시할지")]
     public bool showFmsTextOnBeep = true;
-
     public float fmsTextSeconds = 0.5f;
 
     // ===== runtime =====
@@ -113,8 +120,13 @@ public class VRRotationHapticsManualController : MonoBehaviour
     private Coroutine _autoStopRoutine;
     private Coroutine _fmsBeepRoutine;
 
+    // Random runtime
     private float _randomElapsed = 0f;
+    private int _prevRandomMotor = -1;
+
     private readonly int[] _randomMotors = new int[32];
+    private readonly int[] _randomPool = new int[32];
+    private int _randomPoolCount = 0;
 
     private void OnDisable()
     {
@@ -128,21 +140,30 @@ public class VRRotationHapticsManualController : MonoBehaviour
         float dt = useUnscaledTime ? Time.unscaledDeltaTime : Time.deltaTime;
         if (dt <= 0f) return;
 
+        // ✅ Inspector용 경과 시간
+        elapsedSeconds += dt;
+        elapsedWholeSeconds = Mathf.FloorToInt(elapsedSeconds);
+
         RotateRig(dt);
 
-        if (condition == HapticCondition.RandomMotors)
+        // ✅ RandomMotors: yaw path 내부에서만 랜덤 + step마다 1개 모터
+        if (condition == HapticCondition.RandomMotors && axis == AxisType.Yaw)
         {
+            RefreshYawRandomPool();
+
             _randomElapsed += dt;
-            if (_randomElapsed >= Mathf.Max(0.01f, randomUpdateInterval))
+            float stepSec = GetRandomStepIntervalSeconds();
+            if (_randomElapsed >= stepSec)
             {
                 _randomElapsed = 0f;
-                SendRandomMotorsOnce();
+                int durationMs = GetRandomDurationMs(stepSec);
+                SendRandomMotorOnce(durationMs);
             }
         }
     }
 
     // ======================
-    // Inspector 버튼으로 누를 API
+    // Inspector 버튼 API
     // ======================
     public void PlayNow()
     {
@@ -162,7 +183,13 @@ public class VRRotationHapticsManualController : MonoBehaviour
     public void StopNow()
     {
         isRunning = false;
+
         _randomElapsed = 0f;
+        _prevRandomMotor = -1;
+
+        // 경과시간 리셋(원하면 유지해도 되는데 보통 Stop하면 0으로 두는 게 편함)
+        elapsedSeconds = 0f;
+        elapsedWholeSeconds = 0;
 
         if (_playRoutine != null) { StopCoroutine(_playRoutine); _playRoutine = null; }
         if (_autoStopRoutine != null) { StopCoroutine(_autoStopRoutine); _autoStopRoutine = null; }
@@ -177,23 +204,23 @@ public class VRRotationHapticsManualController : MonoBehaviour
         StopAllHapticsHard();
         ApplyCommonHapticParams();
 
-        SetStatus("3");
-        yield return WaitSeconds(1f);
-        SetStatus("2");
-        yield return WaitSeconds(1f);
-        SetStatus("1");
-        yield return WaitSeconds(1f);
+        SetStatus("3"); yield return WaitSeconds(1f);
+        SetStatus("2"); yield return WaitSeconds(1f);
+        SetStatus("1"); yield return WaitSeconds(1f);
         SetStatus("GO");
 
         isRunning = true;
-        _randomElapsed = 0f;
 
-        // FMS 알림 시작
+        // ✅ 경과시간 시작점 초기화
+        elapsedSeconds = 0f;
+        elapsedWholeSeconds = 0;
+
+        _randomElapsed = 0f;
+        _prevRandomMotor = -1;
+
         StartFmsReminderIfNeeded();
 
         float baseHaptic = hapticAngularSpeedDegPerSec;
-
-        // 조건에 따라 부호 부여
         float hapticSpeed =
             (condition == HapticCondition.OppositeDirection) ? -baseHaptic :
             (condition == HapticCondition.GuideDirection) ? baseHaptic :
@@ -220,11 +247,11 @@ public class VRRotationHapticsManualController : MonoBehaviour
     private System.Collections.IEnumerator AutoStopAfter(float seconds)
     {
         yield return WaitSeconds(Mathf.Max(0.01f, seconds));
-
         if (!isRunning) yield break;
 
         isRunning = false;
         _randomElapsed = 0f;
+        _prevRandomMotor = -1;
 
         if (_fmsBeepRoutine != null) { StopCoroutine(_fmsBeepRoutine); _fmsBeepRoutine = null; }
 
@@ -265,7 +292,6 @@ public class VRRotationHapticsManualController : MonoBehaviour
 
     private void ApplyCommonHapticParams()
     {
-        // axis별 intensity
         if (yawController != null) yawController.SetMaxIntensity01(yawMaxIntensity01);
         if (pitchController != null) pitchController.SetMaxIntensity01(pitchMaxIntensity01);
 
@@ -280,7 +306,6 @@ public class VRRotationHapticsManualController : MonoBehaviour
             rollController.SetDurationMillis(rollDurationMillis);
         }
 
-        // Yaw 상세 파라미터
         if (yawController != null)
         {
             yawController.SetSigmaForStage(YawGaussian.YawStage.Front, yawSigmaFrontBack);
@@ -298,7 +323,6 @@ public class VRRotationHapticsManualController : MonoBehaviour
                 yawController.SetNormalizationMode(YawGaussian.NormalizationMode.None, energyTargetMotors);
         }
 
-        // Pitch 상세 파라미터
         if (pitchController != null)
         {
             pitchController.SetSigmaForStage(PitchGaussian.PitchStage.Front, pitchSigmaMain);
@@ -330,7 +354,6 @@ public class VRRotationHapticsManualController : MonoBehaviour
             case AxisType.Roll:
                 if (rollController == null) { Debug.LogError("[Manual] rollController null"); return; }
                 rollController.StopHaptics();
-                // ✅ 핵심: 이제 Roll도 signed speed를 그대로 넘김 (롤 컨트롤러가 부호를 반영하도록 수정 필요)
                 rollController.StartStage(hapticSpeedDegPerSecSigned);
                 break;
 
@@ -342,32 +365,88 @@ public class VRRotationHapticsManualController : MonoBehaviour
         }
     }
 
-    // ===== Random Motors =====
-    private void SendRandomMotorsOnce()
+    // ======================
+    // Random (Yaw path 내부 랜덤)
+    // ======================
+    private void RefreshYawRandomPool()
     {
-        Array.Clear(_randomMotors, 0, _randomMotors.Length);
+        _randomPoolCount = 0;
 
-        int k = Mathf.Clamp(randomMotorCount, 1, 10);
-        int intensity = Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(randomIntensity01) * 100f), 0, 100);
+        int[] src = null;
+        if (randomYawPoolOverride != null && randomYawPoolOverride.Length > 0)
+            src = randomYawPoolOverride;
+        else if (yawController != null)
+            src = yawController.GetLoopPathReadOnly(); // ✅ YawGaussian에 getter 필요
 
-        for (int i = 0; i < k; i++)
+        if (src != null && src.Length > 0)
         {
-            int tries = 0;
-            while (tries++ < 50)
+            for (int i = 0; i < src.Length && _randomPoolCount < _randomPool.Length; i++)
             {
-                int m = UnityEngine.Random.Range(0, 32);
-                if (_randomMotors[m] == 0)
-                {
-                    _randomMotors[m] = intensity;
-                    break;
-                }
+                int idx = src[i];
+                if (idx < 0 || idx >= 32) continue;
+
+                bool exists = false;
+                for (int j = 0; j < _randomPoolCount; j++)
+                    if (_randomPool[j] == idx) { exists = true; break; }
+
+                if (!exists) _randomPool[_randomPoolCount++] = idx;
             }
         }
 
-        BhapticsLibrary.PlayMotors((int)PositionType.Vest, _randomMotors, Mathf.Max(10, randomDurationMs));
+        // fallback (예상치 못하게 path가 비면 전체 32로)
+        if (_randomPoolCount <= 0)
+        {
+            for (int i = 0; i < 32; i++) _randomPool[i] = i;
+            _randomPoolCount = 32;
+        }
     }
 
-    // ===== Stop Hard =====
+    private float GetRandomStepIntervalSeconds()
+    {
+        if (!randomUseStepTimeFromAngularSpeed)
+            return Mathf.Max(0.01f, randomUpdateInterval);
+
+        float omega = Mathf.Abs(hapticAngularSpeedDegPerSec);
+        if (omega < 1e-3f) return Mathf.Max(0.01f, randomUpdateInterval);
+
+        // ✅ stepSec = 360 / (omega * N), N = yaw path 모터 개수
+        int n = Mathf.Max(1, _randomPoolCount);
+        return 360f / (omega * n);
+    }
+
+    private int GetRandomDurationMs(float stepSec)
+    {
+        if (!randomUseStepTimeFromAngularSpeed)
+            return Mathf.Max(10, randomDurationMs);
+
+        int ms = Mathf.RoundToInt(stepSec * 1000f);
+        return Mathf.Clamp(ms, 20, 5000);
+    }
+
+    private void SendRandomMotorOnce(int durationMs)
+    {
+        Array.Clear(_randomMotors, 0, _randomMotors.Length);
+
+        int intensity = Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(randomIntensity01) * 100f), 0, 100);
+
+        int pick = _randomPool[UnityEngine.Random.Range(0, Mathf.Max(1, _randomPoolCount))];
+
+        if (randomAvoidImmediateRepeat && _randomPoolCount > 1)
+        {
+            int guard = 0;
+            while (pick == _prevRandomMotor && guard++ < 20)
+                pick = _randomPool[UnityEngine.Random.Range(0, _randomPoolCount)];
+        }
+
+        _prevRandomMotor = pick;
+        _randomMotors[pick] = intensity;
+
+        BhapticsLibrary.PlayMotors((int)PositionType.Vest, _randomMotors, Mathf.Max(10, durationMs));
+    }
+
+    // ======================
+    // Stop / FMS
+    // ======================
     private void StopAllHapticsHard()
     {
         if (yawController != null) yawController.StopAll();
@@ -378,7 +457,6 @@ public class VRRotationHapticsManualController : MonoBehaviour
         BhapticsLibrary.PlayMotors((int)PositionType.Vest, _randomMotors, 60);
     }
 
-    // ===== FMS Reminder =====
     private void StartFmsReminderIfNeeded()
     {
         if (_fmsBeepRoutine != null)
@@ -418,7 +496,16 @@ public class VRRotationHapticsManualController : MonoBehaviour
             Debug.Log("[Manual] FMS Beep: uiAudioSource 또는 beepClip이 비어있어서 소리를 못 냄");
             return;
         }
-
         uiAudioSource.PlayOneShot(beepClip, beepVolume);
+    }
+
+    void Start()
+    {
+        var avail = OVRPlugin.systemDisplayFrequenciesAvailable;
+        Debug.Log("[HMD] Available Hz: " + string.Join(", ", avail));
+        Debug.Log("[HMD] Current Hz (before): " + OVRPlugin.systemDisplayFrequency);
+
+        OVRPlugin.systemDisplayFrequency = 120f;
+        Debug.Log("[HMD] Current Hz (after set): " + OVRPlugin.systemDisplayFrequency);
     }
 }

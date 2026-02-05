@@ -35,7 +35,6 @@ public class YawGaussian : MonoBehaviour
         Array.Clear(_motorValues01, 0, _motorValues01.Length);
         Array.Clear(_motorValuesInt, 0, _motorValuesInt.Length);
 
-        // ✅ SDK는 int[]를 원함
         BhapticsLibrary.PlayMotors((int)PositionType.Vest, _motorValuesInt, 80);
     }
 
@@ -70,6 +69,9 @@ public class YawGaussian : MonoBehaviour
     public void SetUseUnscaledTime(bool v) => useUnscaledTime = v;
     public bool GetUseUnscaledTime() => useUnscaledTime;
 
+    // ✅ 추가: Manager가 yaw path를 읽어서 "path 내부 랜덤" 풀로 쓰기 위함
+    public int[] GetLoopPathReadOnly() => loopPath;
+
     // =========================
     // Config
     // =========================
@@ -93,6 +95,7 @@ public class YawGaussian : MonoBehaviour
     private float _normScaleSmoothed = 1f;
 
     [Header("Yaw Full Loop Path")]
+    // ✅ 여기 loopPath를 [8,9,10,11,27,26,25,24]로 바꾸면 너가 말한 yaw 경로가 됨
     [SerializeField] private int[] loopPath = { 4, 5, 6, 7, 23, 22, 21, 20 };
 
     [Header("Sigma (Front+Back vs Seam)")]
@@ -131,9 +134,7 @@ public class YawGaussian : MonoBehaviour
     private readonly float[] _raw01 = new float[VestMotorCount];
     private readonly float[] _smoothed01 = new float[VestMotorCount];
 
-    // 내부는 0..1 float로 유지
     private readonly float[] _motorValues01 = new float[VestMotorCount];
-    // ✅ SDK 전송은 0..100 int
     private readonly int[] _motorValuesInt = new int[VestMotorCount];
 
     private void OnDisable() => StopAll();
@@ -159,7 +160,6 @@ public class YawGaussian : MonoBehaviour
         energyTarget = Mathf.Max(0.01f, energyTarget);
         durationMillis = Mathf.Max(10, durationMillis);
 
-        // clamp ranges (kept consistent with inspector ranges)
         cutoff01 = Mathf.Clamp(cutoff01, 0f, 0.4f);
         perceptualThreshold01 = Mathf.Clamp(perceptualThreshold01, 0f, 0.5f);
         minOn01 = Mathf.Clamp(minOn01, 0f, 0.2f);
@@ -189,7 +189,6 @@ public class YawGaussian : MonoBehaviour
         for (int i = 0; i < VestMotorCount; i++)
             _smoothed01[i] = Mathf.Lerp(_smoothed01[i], _raw01[i], a);
 
-        // output shaping (float 0..1)
         for (int i = 0; i < VestMotorCount; i++)
         {
             float v = _smoothed01[i];
@@ -198,7 +197,6 @@ public class YawGaussian : MonoBehaviour
             _motorValues01[i] = v;
         }
 
-        // ✅ float(0..1) -> int(0..100) 변환
         for (int i = 0; i < VestMotorCount; i++)
         {
             _motorValuesInt[i] = Mathf.Clamp(Mathf.RoundToInt(_motorValues01[i] * 100f), 0, 100);
