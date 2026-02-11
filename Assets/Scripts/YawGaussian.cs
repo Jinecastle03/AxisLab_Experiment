@@ -27,6 +27,15 @@ public class YawGaussian : MonoBehaviour
         _running = true;
     }
 
+    /// <summary>
+    /// ✅ 추가: 실행 중 속도만 갱신 (Reset 없이)
+    /// speedDegPerSec can be negative (direction reversal).
+    /// </summary>
+    public void SetAngularSpeedDegPerSec(float speedDegPerSec)
+    {
+        angularSpeedDegPerSec = speedDegPerSec;
+    }
+
     public void StopAll()
     {
         _running = false;
@@ -69,7 +78,7 @@ public class YawGaussian : MonoBehaviour
     public void SetUseUnscaledTime(bool v) => useUnscaledTime = v;
     public bool GetUseUnscaledTime() => useUnscaledTime;
 
-    // ✅ 추가: Manager가 yaw path를 읽어서 "path 내부 랜덤" 풀로 쓰기 위함
+    // ✅ Manager가 yaw path를 읽어서 "path 내부 랜덤" 풀로 쓰기 위함
     public int[] GetLoopPathReadOnly() => loopPath;
 
     // =========================

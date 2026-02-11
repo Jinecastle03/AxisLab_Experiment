@@ -6,11 +6,14 @@ using Bhaptics.SDK2;
 public class VRRotationHapticsManualController : MonoBehaviour
 {
     public enum AxisType { Yaw, Roll, Pitch }
-    public enum HapticCondition { GuideDirection, OppositeDirection, RandomMotors, None }
+    public enum HapticCondition { Match, Mismatch, RandomMotors, None }
 
-    [Header("References")]
-    [Tooltip("XR Origin 또는 OVRCameraRig '루트 Transform' (Main Camera X)")]
-    public Transform rigRoot;
+    [Header("References (IMPORTANT)")]
+    [Tooltip("HMD 카메라 Transform (예: CenterEyeAnchor / Main Camera). 회전 피벗(중심)으로 사용.")]
+    public Transform headTransform;
+
+    [Tooltip("회전시킬 맵/자극 루트(StimulusRoot). 카메라/rig는 절대 돌리지 않음.")]
+    public Transform stimulusRoot;
 
     public YawGaussian yawController;
     public RollGaussian rollController;    // yaw만 쓸 거면 비워도 됨
@@ -21,10 +24,10 @@ public class VRRotationHapticsManualController : MonoBehaviour
 
     [Header("Current Setting (Inspector에서 바꾸고 Play/Stop)")]
     public AxisType axis = AxisType.Yaw;
-    public HapticCondition condition = HapticCondition.GuideDirection;
+    public HapticCondition condition = HapticCondition.Match;
 
     [Header("Speeds (Visual vs Haptics)")]
-    [Tooltip("deg/sec. 화면(카메라/rig) 회전 속도")]
+    [Tooltip("deg/sec. 시각(맵/자극) 회전 속도")]
     public float visualAngularSpeedDegPerSec = 45f;
 
     [Tooltip("deg/sec. 수트(햅틱) 진행 속도. Random의 step 계산에도 이 값 사용")]
@@ -36,7 +39,58 @@ public class VRRotationHapticsManualController : MonoBehaviour
     [Tooltip("Time.timeScale 영향 안 받게")]
     public bool useUnscaledTime = true;
 
-    [Header("Runtime (Read Only)")]
+    [Header("Stimulus Rotation")]
+    [Tooltip("true면 맵(StimulusRoot) 회전 방향을 반대로 뒤집음")]
+    public bool invertStimulusRotation = true;
+
+    [Header("Skybox Rotation")]
+    [Tooltip("true면 RenderSettings.skybox 머티리얼의 _Rotation(지원하는 셰이더일 때)을 함께 회전시킵니다.")]
+    public bool rotateSkybox = true;
+
+    [Tooltip("Skybox 회전 배수. 보통 1.0")]
+    public float skyboxRotationMultiplier = 1f;
+
+    [Tooltip("Play 시작 시 skybox rotation을 0으로 리셋합니다.")]
+    public bool resetSkyboxRotationOnPlay = true;
+
+    private Material _skyboxMat;
+    private float _skyboxRotationDeg = 0f;
+
+    // ============================================================
+    // ✅ Speed Schedule (Yaw only): 40→60→50… 반복 + 간격 인스펙터 제어
+    // ============================================================
+    [Header("Speed Schedule (Yaw only)")]
+    [Tooltip("켜면 Yaw에서 시각/햅틱 속도가 speedSegmentSeconds마다 시퀀스대로 반복됨")]
+    public bool useYawSpeedSchedule = false;
+
+    [Tooltip("속도 변경 간격(초). 예: 10=10초마다, 30=30초마다")]
+    public float speedSegmentSeconds = 10f;
+
+    [Tooltip("시각 회전 속도 시퀀스(deg/sec). 예: 40,60,50 (계속 반복)")]
+    public float[] yawVisualSpeedSequenceDegPerSec = new float[] { 40f, 60f, 50f };
+
+    [Tooltip("햅틱 속도 = (시각 속도 * multiplier). 예: 2면 45->90 비율")]
+    public float yawHapticSpeedMultiplierFromVisual = 2.0f;
+
+    
+
+    [Header("Yaw Speed Linking & Smoothing")]
+    [Tooltip("true면 (Yaw에서) 햅틱 속도를 시각 속도에 multiplier로 동기화합니다. false면 hapticAngularSpeedDegPerSec 값을 그대로 사용합니다.")]
+    public bool yawSyncHapticSpeedToVisual = true;
+
+    [Tooltip("true면 (Yaw에서) 속도 변경이 Lerp로 부드럽게 전환됩니다. false면 즉시(Snap) 바뀝니다.")]
+    public bool yawSmoothSpeedTransitions = true;
+
+    [Tooltip("Yaw 속도 전환에 걸리는 시간(초). 0이면 즉시 전환.")]
+    public float yawSpeedLerpSeconds = 1.2f;
+
+    [Header("Runtime Speed (Read Only)")]
+    [SerializeField] private float _targetVisualSpeedDegPerSec = 0f;
+    [SerializeField] private float _currentVisualSpeedDegPerSec = 0f;
+    [SerializeField] private float _targetHapticSpeedAbsDegPerSec = 0f;
+    [SerializeField] private float _currentHapticSpeedAbsDegPerSec = 0f;
+
+[Header("Runtime (Read Only)")]
     [SerializeField] private float elapsedSeconds = 0f;
     [SerializeField] private int elapsedWholeSeconds = 0;
 
@@ -93,7 +147,13 @@ public class VRRotationHapticsManualController : MonoBehaviour
 
     [Range(0f, 1f)] public float randomIntensity01 = 0.25f;
 
-    [Tooltip("randomUseStepTimeFromAngularSpeed=false 일 때만 사용. ms")]
+    
+    public enum RandomOmegaSource { HapticSpeed, VisualSpeed }
+
+    [Tooltip("randomUseStepTimeFromAngularSpeed=true일 때, step 계산에 사용할 각속도 소스")]
+    public RandomOmegaSource randomOmegaSource = RandomOmegaSource.HapticSpeed;
+
+[Tooltip("randomUseStepTimeFromAngularSpeed=false 일 때만 사용. ms")]
     public int randomDurationMs = 60;
 
     public bool randomAvoidImmediateRepeat = true;
@@ -120,6 +180,10 @@ public class VRRotationHapticsManualController : MonoBehaviour
     private Coroutine _autoStopRoutine;
     private Coroutine _fmsBeepRoutine;
 
+    // ✅ Speed Schedule runtime
+    private Coroutine _yawSpeedScheduleRoutine;
+    private int _yawSpeedSeqIndex = 0;
+
     // Random runtime
     private float _randomElapsed = 0f;
     private int _prevRandomMotor = -1;
@@ -140,13 +204,23 @@ public class VRRotationHapticsManualController : MonoBehaviour
         float dt = useUnscaledTime ? Time.unscaledDeltaTime : Time.deltaTime;
         if (dt <= 0f) return;
 
-        // ✅ Inspector용 경과 시간
+        // 경과 시간
         elapsedSeconds += dt;
         elapsedWholeSeconds = Mathf.FloorToInt(elapsedSeconds);
 
-        RotateRig(dt);
+        // ✅ Yaw: 시각속도/햅틱속도 동기화 + Lerp(옵션) 업데이트
+        UpdateYawSpeedTargetsAndCurrents(dt);
 
-        // ✅ RandomMotors: yaw path 내부에서만 랜덤 + step마다 1개 모터
+        // ✅ 핵심: 카메라/rig가 아니라 StimulusRoot(맵)만 회전
+        RotateStimulus(dt);
+
+        // ✅ Yaw (Match/Mismatch): Lerp 중에도 햅틱 각속도가 같이 천천히 변하도록 매 프레임 반영
+        if (axis == AxisType.Yaw && yawController != null && (condition == HapticCondition.Match || condition == HapticCondition.Mismatch))
+        {
+            float signed = (condition == HapticCondition.Mismatch) ? -_currentHapticSpeedAbsDegPerSec : _currentHapticSpeedAbsDegPerSec;
+            yawController.SetAngularSpeedDegPerSec(signed);
+        }
+// RandomMotors: yaw path 내부에서만 랜덤 + step마다 1개 모터
         if (condition == HapticCondition.RandomMotors && axis == AxisType.Yaw)
         {
             RefreshYawRandomPool();
@@ -167,15 +241,23 @@ public class VRRotationHapticsManualController : MonoBehaviour
     // ======================
     public void PlayNow()
     {
-        if (rigRoot == null)
+        isRunning = false;
+
+        if (headTransform == null)
         {
-            Debug.LogError("[Manual] rigRoot가 비어있음. XR Origin/OVRCameraRig 루트를 넣어.");
+            Debug.LogError("[Manual] headTransform이 비어있음. HMD 카메라(예: CenterEyeAnchor/Main Camera)를 넣어.");
+            return;
+        }
+        if (stimulusRoot == null)
+        {
+            Debug.LogError("[Manual] stimulusRoot가 비어있음. 맵/자극 루트(StimulusRoot)를 넣어.");
             return;
         }
 
         if (_playRoutine != null) StopCoroutine(_playRoutine);
         if (_autoStopRoutine != null) StopCoroutine(_autoStopRoutine);
         if (_fmsBeepRoutine != null) StopCoroutine(_fmsBeepRoutine);
+        if (_yawSpeedScheduleRoutine != null) StopCoroutine(_yawSpeedScheduleRoutine);
 
         _playRoutine = StartCoroutine(PlaySequence());
     }
@@ -187,13 +269,13 @@ public class VRRotationHapticsManualController : MonoBehaviour
         _randomElapsed = 0f;
         _prevRandomMotor = -1;
 
-        // 경과시간 리셋(원하면 유지해도 되는데 보통 Stop하면 0으로 두는 게 편함)
         elapsedSeconds = 0f;
         elapsedWholeSeconds = 0;
 
         if (_playRoutine != null) { StopCoroutine(_playRoutine); _playRoutine = null; }
         if (_autoStopRoutine != null) { StopCoroutine(_autoStopRoutine); _autoStopRoutine = null; }
         if (_fmsBeepRoutine != null) { StopCoroutine(_fmsBeepRoutine); _fmsBeepRoutine = null; }
+        if (_yawSpeedScheduleRoutine != null) { StopCoroutine(_yawSpeedScheduleRoutine); _yawSpeedScheduleRoutine = null; }
 
         StopAllHapticsHard();
         SetStatus("");
@@ -204,6 +286,8 @@ public class VRRotationHapticsManualController : MonoBehaviour
         StopAllHapticsHard();
         ApplyCommonHapticParams();
 
+
+        CacheSkyboxMaterial();
         SetStatus("3"); yield return WaitSeconds(1f);
         SetStatus("2"); yield return WaitSeconds(1f);
         SetStatus("1"); yield return WaitSeconds(1f);
@@ -211,7 +295,6 @@ public class VRRotationHapticsManualController : MonoBehaviour
 
         isRunning = true;
 
-        // ✅ 경과시간 시작점 초기화
         elapsedSeconds = 0f;
         elapsedWholeSeconds = 0;
 
@@ -220,13 +303,23 @@ public class VRRotationHapticsManualController : MonoBehaviour
 
         StartFmsReminderIfNeeded();
 
-        float baseHaptic = hapticAngularSpeedDegPerSec;
+        // (1) Yaw Speed Schedule 초기 적용 (0번째 속도부터)
+        InitializeYawSpeedScheduleForRun();
+
+
+        // Yaw 속도 동기화/스무딩 런타임 초기화 (시작 시점은 즉시 목표값으로 세팅)
+        UpdateYawSpeedTargetsAndCurrents(0.016f);
+        _currentVisualSpeedDegPerSec = _targetVisualSpeedDegPerSec;
+        _currentHapticSpeedAbsDegPerSec = _targetHapticSpeedAbsDegPerSec;
+
+        // (2) 현재 hapticAngularSpeedDegPerSec 기준으로 방향 결정
+        float baseHaptic = (axis == AxisType.Yaw) ? _currentHapticSpeedAbsDegPerSec : hapticAngularSpeedDegPerSec;
         float hapticSpeed =
-            (condition == HapticCondition.OppositeDirection) ? -baseHaptic :
-            (condition == HapticCondition.GuideDirection) ? baseHaptic :
+            (condition == HapticCondition.Mismatch) ? -baseHaptic :
+            (condition == HapticCondition.Match) ? baseHaptic :
             0f;
 
-        if (condition == HapticCondition.GuideDirection || condition == HapticCondition.OppositeDirection)
+        if (condition == HapticCondition.Match || condition == HapticCondition.Mismatch)
         {
             StartAxisHaptics(hapticSpeed);
         }
@@ -234,6 +327,9 @@ public class VRRotationHapticsManualController : MonoBehaviour
         {
             Array.Clear(_randomMotors, 0, _randomMotors.Length);
         }
+
+        // (3) Yaw Speed Schedule 루프 시작
+        StartYawSpeedScheduleLoopIfNeeded();
 
         if (playDurationMinutes > 0f)
         {
@@ -254,6 +350,7 @@ public class VRRotationHapticsManualController : MonoBehaviour
         _prevRandomMotor = -1;
 
         if (_fmsBeepRoutine != null) { StopCoroutine(_fmsBeepRoutine); _fmsBeepRoutine = null; }
+        if (_yawSpeedScheduleRoutine != null) { StopCoroutine(_yawSpeedScheduleRoutine); _yawSpeedScheduleRoutine = null; }
 
         StopAllHapticsHard();
 
@@ -273,11 +370,81 @@ public class VRRotationHapticsManualController : MonoBehaviour
         if (statusText != null) statusText.text = msg;
     }
 
-    // ======================
-    // 내부 동작
-    // ======================
-    private void RotateRig(float dt)
+    private void CacheSkyboxMaterial()
     {
+        _skyboxMat = RenderSettings.skybox;
+        if (_skyboxMat != null && _skyboxMat.HasProperty("_Rotation"))
+        {
+            if (resetSkyboxRotationOnPlay)
+            {
+                _skyboxRotationDeg = 0f;
+                _skyboxMat.SetFloat("_Rotation", _skyboxRotationDeg);
+            }
+            else
+            {
+                _skyboxRotationDeg = _skyboxMat.GetFloat("_Rotation");
+            }
+        }
+    }
+
+
+    // ======================
+    // Yaw speed sync & smoothing (NO latency attack)
+    // ======================
+    private void UpdateYawSpeedTargetsAndCurrents(float dt)
+    {
+        // 기본 target은 Inspector 값
+        float targetVisual = Mathf.Max(0f, visualAngularSpeedDegPerSec);
+        float targetHapticAbs = Mathf.Max(0f, hapticAngularSpeedDegPerSec);
+
+        // Speed Schedule이 켜져있고 Yaw라면, ApplyYawScheduleSpeed()가 visualAngularSpeedDegPerSec를 갱신해줌
+        // 여기서는 "시각->햅틱 동기화" 옵션만 반영
+        if (axis == AxisType.Yaw && yawSyncHapticSpeedToVisual)
+        {
+            float mul = Mathf.Max(0f, yawHapticSpeedMultiplierFromVisual);
+            targetHapticAbs = Mathf.Max(0f, targetVisual * mul);
+
+            // 인스펙터에서도 값 확인 가능하도록
+            hapticAngularSpeedDegPerSec = targetHapticAbs;
+        }
+
+        _targetVisualSpeedDegPerSec = targetVisual;
+        _targetHapticSpeedAbsDegPerSec = targetHapticAbs;
+
+        // 초기값 보정 (처음 한번)
+        if (_currentVisualSpeedDegPerSec <= 0f && _currentHapticSpeedAbsDegPerSec <= 0f && elapsedSeconds <= 0.0001f)
+        {
+            _currentVisualSpeedDegPerSec = _targetVisualSpeedDegPerSec;
+            _currentHapticSpeedAbsDegPerSec = _targetHapticSpeedAbsDegPerSec;
+        }
+
+        bool doLerp = yawSmoothSpeedTransitions && yawSpeedLerpSeconds > 0f;
+
+        // Yaw에서만 스무딩 적용. (Roll/Pitch는 필요하면 동일 패턴으로 확장)
+        if (axis != AxisType.Yaw) doLerp = false;
+
+        if (!doLerp)
+        {
+            _currentVisualSpeedDegPerSec = _targetVisualSpeedDegPerSec;
+            _currentHapticSpeedAbsDegPerSec = _targetHapticSpeedAbsDegPerSec;
+            return;
+        }
+
+        float t = Mathf.Clamp01(dt / Mathf.Max(1e-5f, yawSpeedLerpSeconds));
+
+        _currentVisualSpeedDegPerSec = Mathf.Lerp(_currentVisualSpeedDegPerSec, _targetVisualSpeedDegPerSec, t);
+        _currentHapticSpeedAbsDegPerSec = Mathf.Lerp(_currentHapticSpeedAbsDegPerSec, _targetHapticSpeedAbsDegPerSec, t);
+    }
+
+
+
+    // ======================
+    // ✅ 핵심: StimulusRoot 회전 (맵 회전)
+    // ======================
+    private void RotateStimulus(float dt)
+    {
+        if (stimulusRoot == null || headTransform == null) return;
+
         Vector3 axisVec = axis switch
         {
             AxisType.Yaw => Vector3.up,
@@ -286,8 +453,20 @@ public class VRRotationHapticsManualController : MonoBehaviour
             _ => Vector3.up
         };
 
-        float angle = visualAngularSpeedDegPerSec * dt;
-        rigRoot.Rotate(axisVec, angle, Space.Self);
+        float visualSpeed = (axis == AxisType.Yaw) ? _currentVisualSpeedDegPerSec : visualAngularSpeedDegPerSec;
+        float angle = visualSpeed * dt;
+        if (invertStimulusRotation) angle = -angle;
+
+        Vector3 pivot = headTransform.position;
+        stimulusRoot.RotateAround(pivot, axisVec, angle);
+
+        // Skybox 회전 (Skybox/Panoramic 등 _Rotation 지원 셰이더일 때)
+        if (rotateSkybox && _skyboxMat != null && _skyboxMat.HasProperty("_Rotation"))
+        {
+            _skyboxRotationDeg = (_skyboxRotationDeg + angle * skyboxRotationMultiplier) % 360f;
+            if (_skyboxRotationDeg < 0f) _skyboxRotationDeg += 360f;
+            _skyboxMat.SetFloat("_Rotation", _skyboxRotationDeg);
+        }
     }
 
     private void ApplyCommonHapticParams()
@@ -365,6 +544,69 @@ public class VRRotationHapticsManualController : MonoBehaviour
         }
     }
 
+    // ============================================================
+    // Speed Schedule (Yaw only)
+    // ============================================================
+    private void InitializeYawSpeedScheduleForRun()
+    {
+        if (!useYawSpeedSchedule) return;
+        if (axis != AxisType.Yaw) return;
+        if (yawVisualSpeedSequenceDegPerSec == null || yawVisualSpeedSequenceDegPerSec.Length <= 0) return;
+
+        _yawSpeedSeqIndex = 0;
+        ApplyYawScheduleSpeed(_yawSpeedSeqIndex);
+    }
+
+    private void StartYawSpeedScheduleLoopIfNeeded()
+    {
+        if (_yawSpeedScheduleRoutine != null)
+        {
+            StopCoroutine(_yawSpeedScheduleRoutine);
+            _yawSpeedScheduleRoutine = null;
+        }
+
+        if (!useYawSpeedSchedule) return;
+        if (axis != AxisType.Yaw) return;
+        if (yawVisualSpeedSequenceDegPerSec == null || yawVisualSpeedSequenceDegPerSec.Length <= 0) return;
+
+        float seg = Mathf.Max(0.01f, speedSegmentSeconds);
+        _yawSpeedScheduleRoutine = StartCoroutine(YawSpeedScheduleLoop(seg));
+    }
+
+    private System.Collections.IEnumerator YawSpeedScheduleLoop(float segmentSeconds)
+    {
+        int n = Mathf.Max(1, yawVisualSpeedSequenceDegPerSec.Length);
+
+        while (isRunning)
+        {
+            yield return WaitSeconds(segmentSeconds);
+            if (!isRunning) yield break;
+
+            _yawSpeedSeqIndex = (_yawSpeedSeqIndex + 1) % n;
+            ApplyYawScheduleSpeed(_yawSpeedSeqIndex);
+        }
+    }
+
+    private void ApplyYawScheduleSpeed(int seqIndex)
+    {
+        int i = Mathf.Clamp(seqIndex, 0, yawVisualSpeedSequenceDegPerSec.Length - 1);
+
+        float v = Mathf.Max(0f, yawVisualSpeedSequenceDegPerSec[i]); // visual deg/s
+        visualAngularSpeedDegPerSec = v;
+
+        float hAbs = Mathf.Max(0f, hapticAngularSpeedDegPerSec);
+
+        if (yawSyncHapticSpeedToVisual)
+        {
+            float mul = Mathf.Max(0f, yawHapticSpeedMultiplierFromVisual);
+            hAbs = Mathf.Max(0f, v * mul); // haptic magnitude deg/s
+            hapticAngularSpeedDegPerSec = hAbs; // 인스펙터 표시용
+        }
+        // NOTE:
+        // - 여기서는 목표 속도(visualAngularSpeedDegPerSec / hapticAngularSpeedDegPerSec)만 갱신합니다.
+        // - 실제 적용(스냅/lerp 포함)은 Update()에서 _current* 값으로 매 프레임 반영합니다.
+}
+
     // ======================
     // Random (Yaw path 내부 랜덤)
     // ======================
@@ -376,7 +618,7 @@ public class VRRotationHapticsManualController : MonoBehaviour
         if (randomYawPoolOverride != null && randomYawPoolOverride.Length > 0)
             src = randomYawPoolOverride;
         else if (yawController != null)
-            src = yawController.GetLoopPathReadOnly(); // ✅ YawGaussian에 getter 필요
+            src = yawController.GetLoopPathReadOnly();
 
         if (src != null && src.Length > 0)
         {
@@ -393,7 +635,7 @@ public class VRRotationHapticsManualController : MonoBehaviour
             }
         }
 
-        // fallback (예상치 못하게 path가 비면 전체 32로)
+        // fallback
         if (_randomPoolCount <= 0)
         {
             for (int i = 0; i < 32; i++) _randomPool[i] = i;
@@ -406,10 +648,13 @@ public class VRRotationHapticsManualController : MonoBehaviour
         if (!randomUseStepTimeFromAngularSpeed)
             return Mathf.Max(0.01f, randomUpdateInterval);
 
-        float omega = Mathf.Abs(hapticAngularSpeedDegPerSec);
+        float omega;
+        if (randomOmegaSource == RandomOmegaSource.VisualSpeed)
+            omega = (axis == AxisType.Yaw) ? Mathf.Abs(_currentVisualSpeedDegPerSec) : Mathf.Abs(visualAngularSpeedDegPerSec);
+        else
+            omega = (axis == AxisType.Yaw) ? Mathf.Abs(_currentHapticSpeedAbsDegPerSec) : Mathf.Abs(hapticAngularSpeedDegPerSec);
         if (omega < 1e-3f) return Mathf.Max(0.01f, randomUpdateInterval);
 
-        // ✅ stepSec = 360 / (omega * N), N = yaw path 모터 개수
         int n = Mathf.Max(1, _randomPoolCount);
         return 360f / (omega * n);
     }
@@ -497,15 +742,5 @@ public class VRRotationHapticsManualController : MonoBehaviour
             return;
         }
         uiAudioSource.PlayOneShot(beepClip, beepVolume);
-    }
-
-    void Start()
-    {
-        var avail = OVRPlugin.systemDisplayFrequenciesAvailable;
-        Debug.Log("[HMD] Available Hz: " + string.Join(", ", avail));
-        Debug.Log("[HMD] Current Hz (before): " + OVRPlugin.systemDisplayFrequency);
-
-        OVRPlugin.systemDisplayFrequency = 120f;
-        Debug.Log("[HMD] Current Hz (after set): " + OVRPlugin.systemDisplayFrequency);
     }
 }
